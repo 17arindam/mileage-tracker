@@ -1,29 +1,36 @@
 package com.example.mileagetracker.viewmodel
 
+import android.content.Context
+import android.content.Intent
 import android.location.Location
+import android.os.Build
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.mileagetracker.data.model.CurrentTrack
 import com.example.mileagetracker.data.model.TrackPoint
 import com.example.mileagetracker.data.repository.LocationRepository
+import com.example.mileagetracker.service.LocationTrackingService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
 class LocationMapViewModel @Inject constructor(
-    private val locationRepository: LocationRepository
+    private val locationRepository: LocationRepository,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
-        companion object {
-            private const val TAG = "LocationMapViewModel"
-        }
+    companion object {
+        private const val TAG = "LocationMapViewModel"
+    }
 
     private val _initialLocation = MutableStateFlow<Location?>(null)
     val initialLocation: StateFlow<Location?> = _initialLocation.asStateFlow()
@@ -139,7 +146,7 @@ class LocationMapViewModel @Inject constructor(
         )
 
         viewModelScope.launch {
-            _initialLocation.value=location
+            _initialLocation.value = location
             Log.d(TAG, "Clearing track points before starting new track")
             _trackPoints.value = emptyList()
 
@@ -151,6 +158,10 @@ class LocationMapViewModel @Inject constructor(
 
             // Set the starting location as the last location for distance calculation
             lastLocation = location
+
+            // Start the foreground service
+            startLocationTrackingService(routeId)
+
             Log.d(TAG, "Track started successfully with route ID: $routeId")
         }
     }
@@ -170,7 +181,6 @@ class LocationMapViewModel @Inject constructor(
                 endTime = currentTime
             )
 
-
             trackPointsJob?.cancel()
 
             _isTracking.value = false
@@ -178,7 +188,48 @@ class LocationMapViewModel @Inject constructor(
             _trackPoints.value = emptyList()
             lastLocation = null
 
+            // Stop the foreground service
+            stopLocationTrackingService()
+
             Log.d(TAG, "Tracking stopped successfully for route: $routeId")
+        }
+    }
+
+    private fun startLocationTrackingService(routeId: String) {
+        Log.d(TAG, "Starting location tracking service for route: $routeId")
+
+        val serviceIntent = Intent(context, LocationTrackingService::class.java).apply {
+            action = LocationTrackingService.ACTION_START_TRACKING
+            putExtra(LocationTrackingService.EXTRA_ROUTE_ID, routeId)
+            Log.d(TAG, "Service intent extras: ${extras.toString()}")
+        }
+
+        try {
+            // Use startForegroundService for API 26+ and startService for older versions
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+                Log.d(TAG, "Location tracking service started using startForegroundService")
+            } else {
+                context.startService(serviceIntent)
+                Log.d(TAG, "Location tracking service started using startService")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start location tracking service", e)
+        }
+    }
+
+    private fun stopLocationTrackingService() {
+        Log.d(TAG, "Stopping location tracking service")
+
+        val serviceIntent = Intent(context, LocationTrackingService::class.java).apply {
+            action = LocationTrackingService.ACTION_STOP_TRACKING
+        }
+
+        try {
+            context.startService(serviceIntent)
+            Log.d(TAG, "Location tracking service stop request sent")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to stop location tracking service", e)
         }
     }
 
@@ -247,6 +298,31 @@ class LocationMapViewModel @Inject constructor(
             locationRepository.getTrackPointsByRouteId(routeId).collect { points ->
                 Log.d(TAG, "Manual track points collection: ${points.size} points")
                 _trackPoints.value = points
+            }
+        }
+    }
+
+    fun checkAndResumeTrackingOnAppStart() {
+        Log.d(TAG, "Checking for active tracking on app start")
+        viewModelScope.launch {
+            try {
+                val activeTrack = locationRepository.getActiveTrack().first()
+                if (activeTrack?.isTracking == true) {
+                    Log.d(TAG, "Found active tracking on app start: ${activeTrack.routeId}")
+
+                    // Update UI state to reflect ongoing tracking
+                    _currentRouteId.value = activeTrack.routeId
+                    _isTracking.value = true
+
+                    // Get track points for the active route
+                    getTrackPointsForRoute(activeTrack.routeId)
+
+                    // The service should already be running, but ensure it's started
+                    // This is a safety measure in case the service was killed
+                    startLocationTrackingService(activeTrack.routeId)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error checking for active tracking", e)
             }
         }
     }

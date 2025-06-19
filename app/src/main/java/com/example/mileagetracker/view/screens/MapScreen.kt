@@ -192,7 +192,8 @@ fun LocationMapScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        showStopFlag = false
+                        showStopFlag = true
+                        viewModel.stopTracking()
                         showStopDialog = false
                         showTrackSummarySheet = true
                     }
@@ -232,11 +233,11 @@ fun LocationMapScreen(
                 onSave = {
                     // Handle save action
                     showTrackSummarySheet = false
-                    viewModel.stopTracking()
+                    showStopFlag=false
                 },
                 onCancel = {
                     showTrackSummarySheet = false
-                    viewModel.stopTracking()
+                    showStopFlag=false
                 }
             )
         }
@@ -715,21 +716,30 @@ fun MapViewContainer(
                     polyline.outlinePaint.color = android.graphics.Color.BLUE
                 }
 
+                // Start flag handling
                 if (isTracking && trackPoints.isNotEmpty()) {
-                    val startPoint = GeoPoint(initiallocation?.latitude ?: trackPoints.first().latitude, initiallocation?.longitude ?: trackPoints.first().longitude)
+                    val startPoint = GeoPoint(
+                        initiallocation?.latitude ?: trackPoints.first().latitude,
+                        initiallocation?.longitude ?: trackPoints.first().longitude
+                    )
                     val startMarker = Marker(view).apply {
                         position = startPoint
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         icon = ContextCompat.getDrawable(view.context, R.drawable.green_flag)
                         infoWindow = null
                         setOnMarkerClickListener { _, _ -> true }
+                        title = "start_flag"
                     }
 
+                    // Remove previous start_flag and add new one
                     view.overlays.removeAll { it is Marker && it.title == "start_flag" }
-                    startMarker.title = "start_flag"
                     view.overlays.add(startMarker)
+                } else {
+                    // Remove start flag only if not tracking
+                    view.overlays.removeAll { it is Marker && it.title == "start_flag" }
                 }
 
+                // Stop flag handling — separate logic!
                 if (showStopFlag && trackPoints.isNotEmpty()) {
                     val stopPoint = GeoPoint(trackPoints.last().latitude, trackPoints.last().longitude)
                     val stopMarker = Marker(view).apply {
@@ -738,12 +748,16 @@ fun MapViewContainer(
                         icon = ContextCompat.getDrawable(view.context, R.drawable.red_flag)
                         infoWindow = null
                         setOnMarkerClickListener { _, _ -> true }
+                        title = "stop_flag"
                     }
 
                     view.overlays.removeAll { it is Marker && it.title == "stop_flag" }
-                    stopMarker.title = "stop_flag"
                     view.overlays.add(stopMarker)
+                } else {
+                    // Remove stop flag only
+                    view.overlays.removeAll { it is Marker && it.title == "stop_flag" }
                 }
+
 
                 view.invalidate()
             },
