@@ -41,20 +41,23 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -93,7 +96,7 @@ import java.util.Locale
 @Composable
 fun LocationMapScreen(
     viewModel: LocationMapViewModel = hiltViewModel(),
-    onNavigateToSavedTracks: () -> Unit = {}
+            onNavigateToSavedTracks: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
@@ -105,9 +108,8 @@ fun LocationMapScreen(
     val trackPoints by viewModel.trackPoints.collectAsState()
     val activeTrack by viewModel.activeTrack.collectAsState()
     val initialLocation by viewModel.initialLocation.collectAsState()
-    var showStopDialog by remember { mutableStateOf(false) }
-    var showTrackSummarySheet by remember { mutableStateOf(false) }
-    val bottomSheetState = rememberModalBottomSheetState()
+    var showStopFlag by remember { mutableStateOf(false) }
+    val lastCompletedTrack by viewModel.lastCompletedTrack.collectAsState()
     var hasNotificationPermission by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -130,6 +132,12 @@ fun LocationMapScreen(
         )
     }
 
+    // Dialog and Bottom Sheet states
+    var showStopDialog by remember { mutableStateOf(false) }
+
+    var showTrackSummarySheet by remember { mutableStateOf(false) }
+    val bottomSheetState = rememberModalBottomSheetState()
+
     // Permission launcher
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -143,6 +151,7 @@ fun LocationMapScreen(
     }
 
     // Request permission if not granted
+    // Replace the existing LaunchedEffect(Unit) with this:
     LaunchedEffect(Unit) {
         val permissionsToRequest = mutableListOf<String>()
 
@@ -212,6 +221,7 @@ fun LocationMapScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
+                        showStopFlag = true
                         viewModel.stopTracking()
                         showStopDialog = false
                         showTrackSummarySheet = true
@@ -248,22 +258,23 @@ fun LocationMapScreen(
         ) {
             TrackSummaryContent(
                 trackPoints = trackPoints,
-                activeTrack = activeTrack,
+                activeTrack = lastCompletedTrack ?: activeTrack,
                 onSave = {
                     // Handle save action
-                    viewModel.clearTrackingData()
+                    viewModel.clearTrackingData() // Add this new function
                     showTrackSummarySheet = false
+                    showStopFlag = false
                 },
                 onCancel = {
-                    viewModel.clearTrackingData()
+                    viewModel.clearTrackingData() // Add this new function
                     showTrackSummarySheet = false
-                },
-                viewModel = viewModel
+                    showStopFlag = false
+                }
             )
         }
     }
 
-    androidx.compose.material3.Scaffold(topBar = {
+    Scaffold(topBar = {
         CenterAlignedTopAppBar(
             title = { Text("Mileage Tracker") },
             actions = {
@@ -337,14 +348,15 @@ fun LocationMapScreen(
                     location = location,
                     azimuth = currentAzimuthLocal,
                     isTracking = isTracking,
-                    showStopFlag = showStopDialog,
-                    initiallocation = initialLocation,
                     trackPoints = trackPoints,
                     activeTrack = activeTrack,
+                    initiallocation = initialLocation,
+                    showStopFlag = showStopFlag,
                     onToggleTracking = {
                         if (isTracking) {
                             showStopDialog = true
                         } else {
+                            showStopFlag = false
                             viewModel.startTracking(location)
                         }
                     },
@@ -367,14 +379,13 @@ fun LocationMapScreen(
         }
     }
 }
-
 @Composable
 fun TrackSummaryContent(
-    trackPoints: List<TrackPoint>,
-    activeTrack: CurrentTrack?,
+    trackPoints: List<com.example.mileagetracker.data.model.TrackPoint>,
+    activeTrack: com.example.mileagetracker.data.model.CurrentTrack?,
     onSave: () -> Unit,
     onCancel: () -> Unit,
-    viewModel: LocationMapViewModel = hiltViewModel()
+    viewModel: LocationMapViewModel = hiltViewModel() // Add this parameter
 ) {
     // Calculate distance
     val totalDistance = calculateTotalDistance(trackPoints)
@@ -411,13 +422,12 @@ fun TrackSummaryContent(
                     onClick = {
                         if (trackName.isNotBlank()) {
                             scope.launch {
-                                activeTrack?.let {
-                                    viewModel.saveTrackWithName(
-                                        name = trackName,
-                                        distance = totalDistance.toDouble(),
-                                        duration = duration
-                                    )
-                                }
+                                viewModel.saveTrackWithName(
+                                    name = trackName,
+                                    distance = totalDistance.toDouble(),
+                                    duration = duration,
+
+                                )
                                 showSaveDialog = false
                                 onSave()
                             }
@@ -427,8 +437,9 @@ fun TrackSummaryContent(
                 ) {
                     Text("Save")
                 }
-            },
-            dismissButton = {
+            }
+,
+                    dismissButton = {
                 TextButton(
                     onClick = { showSaveDialog = false }
                 ) {
@@ -519,7 +530,7 @@ fun TrackSummaryContent(
 
             // Save Button - Updated to show dialog
             Button(
-                onClick = { showSaveDialog = true },
+                onClick = { showSaveDialog = true }, // Changed this line
                 modifier = Modifier
                     .weight(1f)
                     .height(56.dp),
@@ -612,14 +623,14 @@ fun StatRow(
         }
         Text(
             text = value,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
         )
     }
 }
 
 // Helper functions
-fun calculateTotalDistance(trackPoints: List<TrackPoint>): Float {
+fun calculateTotalDistance(trackPoints: List<com.example.mileagetracker.data.model.TrackPoint>): Float {
     if (trackPoints.size < 2) return 0f
 
     var totalDistance = 0f
@@ -638,7 +649,7 @@ fun calculateTotalDistance(trackPoints: List<TrackPoint>): Float {
     return totalDistance
 }
 
-fun calculateDuration(trackPoints: List<TrackPoint>): Long {
+fun calculateDuration(trackPoints: List<com.example.mileagetracker.data.model.TrackPoint>): Long {
     if (trackPoints.size < 2) return 0L
 
     val startTime = trackPoints.first().timestamp
@@ -646,17 +657,9 @@ fun calculateDuration(trackPoints: List<TrackPoint>): Long {
     return endTime - startTime
 }
 
-fun formatDuration(millis: Long): String {
-    val seconds = (millis / 1000) % 60
-    val minutes = (millis / (60 * 1000)) % 60
-    val hours = (millis / (60 * 60 * 1000)) % 24
 
-    return when {
-        hours > 0 -> String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
-        minutes > 0 -> String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
-        else -> String.format(Locale.getDefault(), "%02d sec", seconds)
-    }
-}
+
+
 
 @Composable
 fun LocationUpdater(
@@ -665,25 +668,21 @@ fun LocationUpdater(
     onLocationUpdate: (Location) -> Unit
 ) {
     var lastLocation by remember { mutableStateOf<Location?>(null) }
-    val distanceThresholdMeters = 2f // Reduced from 5f for better sensitivity on real devices
+    val distanceThresholdMeters = 5f
 
     DisposableEffect(Unit) {
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 3000L) // Reduced from 5000L
-            .setMinUpdateIntervalMillis(2000L) // Reduced from 4000L
-            .setMaxUpdateDelayMillis(5000L) // Add max delay to prevent batching on devices
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L)
+            .setMinUpdateIntervalMillis(4000L)
             .build()
 
         val callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { location ->
-                    // More lenient accuracy check for real devices
-                    if (location.accuracy <= 50f) { // Only use locations with reasonable accuracy
-                        val shouldUpdate = lastLocation?.distanceTo(location)?.let { it >= distanceThresholdMeters } ?: true
-                        if (shouldUpdate) {
-                            lastLocation = location
-                            viewModel.updateLocation(location)
-                            onLocationUpdate(location)
-                        }
+                    val shouldUpdate = lastLocation?.distanceTo(location)?.let { it >= distanceThresholdMeters } ?: true
+                    if (shouldUpdate) {
+                        lastLocation = location
+                        viewModel.updateLocation(location)
+                        onLocationUpdate(location)
                     }
                 }
             }
@@ -767,6 +766,8 @@ fun MapViewContainer(
     var routePolyline by remember { mutableStateOf<Polyline?>(null) }
 
     val rotationOffset = -45f
+    val adjustedAzimuth = (-azimuth + rotationOffset + 360f) % 360f
+
     Box(modifier = modifier) {
         AndroidView(
             factory = { context ->
@@ -784,7 +785,7 @@ fun MapViewContainer(
                         position = geoPoint
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         icon = ContextCompat.getDrawable(context, R.drawable.direction)
-                        rotation = (-azimuth + rotationOffset + 360f) % 360f
+                        rotation = adjustedAzimuth
                         infoWindow = null
                         setOnMarkerClickListener { _, _ -> true }
                     }
@@ -803,10 +804,10 @@ fun MapViewContainer(
             },
             update = { view ->
                 val geoPoint = GeoPoint(location.latitude, location.longitude)
-//                view.controller.animateTo(geoPoint)
+                view.controller.animateTo(geoPoint)
                 currentMarker?.let { marker ->
                     marker.position = geoPoint
-                    marker.rotation = (-azimuth + rotationOffset + 360f) % 360f
+                    marker.rotation = adjustedAzimuth
                 }
 
                 // Update route polyline with track points
@@ -819,7 +820,7 @@ fun MapViewContainer(
                 }
 
                 // Start flag handling
-                if ((isTracking || showStopFlag) && trackPoints.isNotEmpty()) {
+                if ((isTracking || showStopFlag==true) && trackPoints.isNotEmpty()) {
                     val startPoint = GeoPoint(
                         initiallocation?.latitude ?: trackPoints.first().latitude,
                         initiallocation?.longitude ?: trackPoints.first().longitude
@@ -860,13 +861,14 @@ fun MapViewContainer(
                     view.overlays.removeAll { it is Marker && it.title == "stop_flag" }
                 }
 
+
                 view.invalidate()
             },
             modifier = Modifier.fillMaxSize()
         )
 
         // Center FAB
-        androidx.compose.material3.FloatingActionButton(
+        FloatingActionButton(
             onClick = {
                 mapView?.controller?.animateTo(
                     GeoPoint(location.latitude, location.longitude)
@@ -891,7 +893,7 @@ fun MapViewContainer(
                 .padding(bottom = 40.dp)
                 .width(250.dp)
                 .height(60.dp),
-            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+            colors = ButtonDefaults.buttonColors(
                 containerColor = if (isTracking) Color.Red else Color(0xFF4CAF50)
             )
         ) {
