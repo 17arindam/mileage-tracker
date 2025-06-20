@@ -8,6 +8,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
+import android.os.Build
 import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,6 +49,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,6 +62,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,6 +84,7 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import kotlinx.coroutines.launch
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -104,7 +108,19 @@ fun LocationMapScreen(
     val activeTrack by viewModel.activeTrack.collectAsState()
     val initialLocation by viewModel.initialLocation.collectAsState()
     var showStopFlag by remember { mutableStateOf(false) }
-
+    val lastCompletedTrack by viewModel.lastCompletedTrack.collectAsState()
+    var hasNotificationPermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                true // No permission needed for older versions
+            }
+        )
+    }
     var currentAzimuthLocal by remember { mutableFloatStateOf(0f) }
     var hasLocationPermission by remember {
         mutableStateOf(
@@ -123,19 +139,31 @@ fun LocationMapScreen(
 
     // Permission launcher
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        hasLocationPermission = isGranted
-        if (isGranted) {
-            // Permission granted, start location updates immediately
-            // This will trigger the LaunchedEffect below
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        hasLocationPermission = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
+        hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions[Manifest.permission.POST_NOTIFICATIONS] ?: false
+        } else {
+            true
         }
     }
 
     // Request permission if not granted
+    // Replace the existing LaunchedEffect(Unit) with this:
     LaunchedEffect(Unit) {
+        val permissionsToRequest = mutableListOf<String>()
+
         if (!hasLocationPermission) {
-            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission) {
+            permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        if (permissionsToRequest.isNotEmpty()) {
+            permissionLauncher.launch(permissionsToRequest.toTypedArray())
         }
     }
 
@@ -229,15 +257,17 @@ fun LocationMapScreen(
         ) {
             TrackSummaryContent(
                 trackPoints = trackPoints,
-                activeTrack = activeTrack,
+                activeTrack = lastCompletedTrack ?: activeTrack,
                 onSave = {
                     // Handle save action
+                    viewModel.clearTrackingData() // Add this new function
                     showTrackSummarySheet = false
-                    showStopFlag=false
+                    showStopFlag = false
                 },
                 onCancel = {
+                    viewModel.clearTrackingData() // Add this new function
                     showTrackSummarySheet = false
-                    showStopFlag=false
+                    showStopFlag = false
                 }
             )
         }
@@ -259,7 +289,8 @@ fun LocationMapScreen(
         )
     }) { paddingValues ->
 
-        if (!hasLocationPermission) {
+        // Replace the existing permission request UI with this:
+        if (!hasLocationPermission || !hasNotificationPermission) {
             // Show permission request UI
             Box(
                 modifier = Modifier
@@ -269,21 +300,44 @@ fun LocationMapScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "Location Permission Required",
+                        text = "Permissions Required",
                         style = MaterialTheme.typography.headlineSmall
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "This app needs location permission to track your mileage.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+
+                    if (!hasLocationPermission) {
+                        Text(
+                            text = "• Location permission is needed to track your mileage.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+
+                    if (!hasNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        Text(
+                            text = "• Notification permission is needed for background tracking.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = {
-                            permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                            val permissionsToRequest = mutableListOf<String>()
+
+                            if (!hasLocationPermission) {
+                                permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
+                            }
+
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission) {
+                                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+
+                            if (permissionsToRequest.isNotEmpty()) {
+                                permissionLauncher.launch(permissionsToRequest.toTypedArray())
+                            }
                         }
                     ) {
-                        Text("Grant Permission")
+                        Text("Grant Permissions")
                     }
                 }
             }
@@ -301,6 +355,7 @@ fun LocationMapScreen(
                         if (isTracking) {
                             showStopDialog = true
                         } else {
+                            showStopFlag = false
                             viewModel.startTracking(location)
                         }
                     },
@@ -323,17 +378,75 @@ fun LocationMapScreen(
         }
     }
 }
-
 @Composable
 fun TrackSummaryContent(
     trackPoints: List<com.example.mileagetracker.data.model.TrackPoint>,
     activeTrack: com.example.mileagetracker.data.model.CurrentTrack?,
     onSave: () -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    viewModel: LocationMapViewModel = hiltViewModel() // Add this parameter
 ) {
     // Calculate distance
     val totalDistance = calculateTotalDistance(trackPoints)
     val duration = calculateDuration(trackPoints)
+
+    // Dialog state
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var trackName by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    // Save Dialog
+    if (showSaveDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveDialog = false },
+            title = {
+                Text("Save Track")
+            },
+            text = {
+                Column {
+                    Text("Enter a name for this track:")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = trackName,
+                        onValueChange = { trackName = it },
+                        label = { Text("Track Name") },
+                        placeholder = { Text("e.g., Morning Commute") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (trackName.isNotBlank()) {
+                            scope.launch {
+                                viewModel.saveTrackWithName(
+                                    name = trackName,
+                                    distance = totalDistance,
+                                    duration = duration,
+                                    currentTrack = activeTrack!!
+                                )
+                                showSaveDialog = false
+                                onSave()
+                            }
+                        }
+                    },
+                    enabled = trackName.isNotBlank()
+                ) {
+                    Text("Save")
+                }
+            }
+,
+                    dismissButton = {
+                TextButton(
+                    onClick = { showSaveDialog = false }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -388,9 +501,6 @@ fun TrackSummaryContent(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-
-
-
         Spacer(modifier = Modifier.height(32.dp))
 
         // Action Buttons
@@ -417,9 +527,9 @@ fun TrackSummaryContent(
                 Text("Discard", fontWeight = FontWeight.Medium)
             }
 
-            // Save Button
+            // Save Button - Updated to show dialog
             Button(
-                onClick = onSave,
+                onClick = { showSaveDialog = true }, // Changed this line
                 modifier = Modifier
                     .weight(1f)
                     .height(56.dp),
@@ -545,6 +655,8 @@ fun calculateDuration(trackPoints: List<com.example.mileagetracker.data.model.Tr
     val endTime = trackPoints.last().timestamp
     return endTime - startTime
 }
+
+
 
 fun formatDuration(durationMillis: Long): String {
     val seconds = durationMillis / 1000
@@ -717,7 +829,7 @@ fun MapViewContainer(
                 }
 
                 // Start flag handling
-                if (isTracking && trackPoints.isNotEmpty()) {
+                if ((isTracking || showStopFlag==true) && trackPoints.isNotEmpty()) {
                     val startPoint = GeoPoint(
                         initiallocation?.latitude ?: trackPoints.first().latitude,
                         initiallocation?.longitude ?: trackPoints.first().longitude

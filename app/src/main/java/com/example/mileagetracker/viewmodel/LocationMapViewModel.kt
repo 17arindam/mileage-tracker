@@ -62,6 +62,9 @@ class LocationMapViewModel @Inject constructor(
     // Job to manage track points collection
     private var trackPointsJob: Job? = null
 
+    private val _lastCompletedTrack = MutableStateFlow<CurrentTrack?>(null)
+    val lastCompletedTrack: StateFlow<CurrentTrack?> = _lastCompletedTrack.asStateFlow()
+
     init {
         Log.d(TAG, "ViewModel initialized")
         observeActiveTrack()
@@ -71,7 +74,10 @@ class LocationMapViewModel @Inject constructor(
         Log.d(TAG, "Starting to observe active track")
         viewModelScope.launch {
             locationRepository.getActiveTrack().collect { track ->
-                Log.d(TAG, "Active track changed: ${track?.routeId}, isTracking: ${track?.isTracking}")
+                Log.d(
+                    TAG,
+                    "Active track changed: ${track?.routeId}, isTracking: ${track?.isTracking}"
+                )
 
                 _activeTrack.value = track
                 _isTracking.value = track?.isTracking == true
@@ -84,27 +90,30 @@ class LocationMapViewModel @Inject constructor(
                     Log.d(TAG, "Starting to collect track points for route: ${track.routeId}")
                     // Start new collection for track points
                     trackPointsJob = viewModelScope.launch {
-                        locationRepository.getTrackPointsByRouteId(track.routeId).collect { points ->
-                            Log.d(TAG, "Track points updated for route ${track.routeId}: ${points.size} points")
-                            _trackPoints.value = points
+                        locationRepository.getTrackPointsByRouteId(track.routeId)
+                            .collect { points ->
+                                Log.d(
+                                    TAG,
+                                    "Track points updated for route ${track.routeId}: ${points.size} points"
+                                )
+                                _trackPoints.value = points
 
-                            // Set last location to the most recent track point if available
-                            if (points.isNotEmpty()) {
-                                val lastPoint = points.last()
-                                lastLocation = Location("").apply {
-                                    latitude = lastPoint.latitude
-                                    longitude = lastPoint.longitude
+                                // Set last location to the most recent track point if available
+                                if (points.isNotEmpty()) {
+                                    val lastPoint = points.last()
+                                    lastLocation = Location("").apply {
+                                        latitude = lastPoint.latitude
+                                        longitude = lastPoint.longitude
+                                    }
+                                    Log.d(
+                                        TAG,
+                                        "Updated last location from track points: ${lastPoint.latitude}, ${lastPoint.longitude}"
+                                    )
                                 }
-                                Log.d(TAG, "Updated last location from track points: ${lastPoint.latitude}, ${lastPoint.longitude}")
                             }
-                        }
                     }
-                } else {
-                    Log.d(TAG, "No active tracking, clearing track points")
-                    // Clear track points when not tracking
-                    _trackPoints.value = emptyList()
-                    lastLocation = null
                 }
+                // DON'T clear track points here when not tracking - let them persist for summary
             }
         }
     }
@@ -122,6 +131,21 @@ class LocationMapViewModel @Inject constructor(
             Log.d(TAG, "Tracking active, saving track point")
             saveTrackPointAndUpdateDistance(location)
         }
+    }
+
+    suspend fun saveTrackWithName(
+        name: String, distance: Float, duration: Long,
+        currentTrack: CurrentTrack
+    ) {
+
+        locationRepository.saveTripWithName(
+
+            name = name,
+            currentTrack = currentTrack,
+            distance = distance.toDouble(),
+            duration = duration
+        )
+
     }
 
     fun updateAzimuth(azimuth: Float) {
@@ -147,8 +171,10 @@ class LocationMapViewModel @Inject constructor(
 
         viewModelScope.launch {
             _initialLocation.value = location
+            _activeTrack.value = currentTrack
             Log.d(TAG, "Clearing track points before starting new track")
-            _trackPoints.value = emptyList()
+            _trackPoints.value = emptyList() // Clear here when starting new tracking
+            lastLocation = null // Reset last location here
 
             Log.d(TAG, "Inserting new track into database")
             locationRepository.startTracking(currentTrack)
@@ -171,22 +197,25 @@ class LocationMapViewModel @Inject constructor(
         val routeId = _currentRouteId.value ?: return
         val currentTime = System.currentTimeMillis()
 
+
         Log.d(TAG, "Stopping tracking for route: $routeId")
 
         viewModelScope.launch {
+
             locationRepository.stopTracking(
                 routeId = routeId,
                 endLat = location.latitude,
                 endLng = location.longitude,
                 endTime = currentTime
             )
-
+            _lastCompletedTrack.value = activeTrack.value
             trackPointsJob?.cancel()
 
             _isTracking.value = false
             _currentRouteId.value = null
-            _trackPoints.value = emptyList()
-            lastLocation = null
+            // DON'T clear track points here - let them persist for the summary
+            // _trackPoints.value = emptyList()
+            // lastLocation = null
 
             // Stop the foreground service
             stopLocationTrackingService()
@@ -325,6 +354,14 @@ class LocationMapViewModel @Inject constructor(
                 Log.e(TAG, "Error checking for active tracking", e)
             }
         }
+    }
+
+    fun clearTrackingData() {
+        Log.d(TAG, "Clearing tracking data after summary")
+        _trackPoints.value = emptyList()
+        lastLocation = null
+        _initialLocation.value = null
+        _finalLocation.value = null
     }
 
     override fun onCleared() {

@@ -60,7 +60,6 @@ class LocationTrackingService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var currentRouteId: String? = null
-    private var lastLocation: Location? = null
     private var isServiceTracking = false
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -107,6 +106,8 @@ class LocationTrackingService : Service() {
         // Return START_STICKY to restart service if killed by system
         return START_STICKY
     }
+
+
 
     private fun checkAndResumeTracking() {
         try {
@@ -178,21 +179,7 @@ class LocationTrackingService : Service() {
         startLocationUpdates()
 
         // Get the last known location from track points for distance calculation
-        serviceScope.launch {
-            try {
-                val trackPoints = locationRepository.getTrackPointsByRouteId(routeId).first()
-                if (trackPoints.isNotEmpty()) {
-                    val lastPoint = trackPoints.last()
-                    lastLocation = Location("").apply {
-                        latitude = lastPoint.latitude
-                        longitude = lastPoint.longitude
-                    }
-                    Log.d(TAG, "Last location set from existing track points")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error getting last track points", e)
-            }
-        }
+
     }
 
     private fun stopLocationTracking() {
@@ -200,7 +187,7 @@ class LocationTrackingService : Service() {
 
         isServiceTracking = false
         currentRouteId = null
-        lastLocation = null
+
 
         // Stop location updates
         try {
@@ -278,24 +265,9 @@ class LocationTrackingService : Service() {
                 // Update notification
                 updateNotification(location)
 
-                // Update distance if we have a previous location
-                lastLocation?.let { prevLocation ->
-                    val distance = prevLocation.distanceTo(location).toDouble()
-                    if (distance > 10.0) { // Only update if moved more than 10 meters
-                        Log.d(TAG, "Distance calculated: $distance meters")
 
-                        // Get current track and update distance
-                        val currentTrack = locationRepository.getActiveTrack().first()
-                        currentTrack?.let { track ->
-                            val updatedTrack = track.copy(distance = track.distance + distance)
-                            locationRepository.updateCurrentTrack(updatedTrack)
-                            Log.d(TAG, "Track distance updated")
-                        }
-                    }
-                }
 
-                // Update last location
-                lastLocation = location
+
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error handling location update", e)

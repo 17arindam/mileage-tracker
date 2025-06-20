@@ -3,6 +3,7 @@ package com.example.mileagetracker.di
 import android.content.Context
 import androidx.room.Room
 import com.example.mileagetracker.data.dao.CurrentTrackDao
+import com.example.mileagetracker.data.dao.SavedTrackDao
 import com.example.mileagetracker.data.dao.TrackPointDao
 import com.example.mileagetracker.data.database.MileageDatabase
 import dagger.Module
@@ -20,10 +21,11 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MileageDatabase {
         return Room.databaseBuilder(
-            context,
-            MileageDatabase::class.java,
-            "mileage_database"
-        ).build()
+                context,
+                MileageDatabase::class.java,
+                "mileage_database"
+            ).fallbackToDestructiveMigration(true) // This will delete and recreate the database
+            .build()
     }
 
     @Provides
@@ -34,5 +36,10 @@ object DatabaseModule {
     @Provides
     fun provideCurrentTrackDao(database: MileageDatabase): CurrentTrackDao {
         return database.currentTrackDao()
+    }
+
+    @Provides
+    fun provideSavedTrackDao(database: MileageDatabase): SavedTrackDao {
+        return database.savedTrackDao()
     }
 }
