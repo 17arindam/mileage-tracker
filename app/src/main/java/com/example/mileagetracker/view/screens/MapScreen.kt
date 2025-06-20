@@ -95,7 +95,8 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LocationMapScreen(
-    viewModel: LocationMapViewModel = hiltViewModel()
+    viewModel: LocationMapViewModel = hiltViewModel(),
+            onNavigateToSavedTracks: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
@@ -278,7 +279,7 @@ fun LocationMapScreen(
             title = { Text("Mileage Tracker") },
             actions = {
                 IconButton(onClick = {
-                    // TODO: Handle menu action
+                    onNavigateToSavedTracks()
                 }) {
                     Icon(
                         imageVector = Icons.Default.Menu,
@@ -423,9 +424,9 @@ fun TrackSummaryContent(
                             scope.launch {
                                 viewModel.saveTrackWithName(
                                     name = trackName,
-                                    distance = totalDistance,
+                                    distance = totalDistance.toDouble(),
                                     duration = duration,
-                                    currentTrack = activeTrack!!
+
                                 )
                                 showSaveDialog = false
                                 onSave()
@@ -658,17 +659,7 @@ fun calculateDuration(trackPoints: List<com.example.mileagetracker.data.model.Tr
 
 
 
-fun formatDuration(durationMillis: Long): String {
-    val seconds = durationMillis / 1000
-    val minutes = seconds / 60
-    val hours = minutes / 60
 
-    return when {
-        hours > 0 -> String.format(Locale.US, "%dh %dm", hours, minutes % 60)
-        minutes > 0 -> String.format(Locale.US, "%dm %ds", minutes, seconds % 60)
-        else -> String.format(Locale.US, "%ds", seconds)
-    }
-}
 
 @Composable
 fun LocationUpdater(

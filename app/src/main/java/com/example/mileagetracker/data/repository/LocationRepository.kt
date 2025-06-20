@@ -1,6 +1,5 @@
 package com.example.mileagetracker.data.repository
 
-
 import com.example.mileagetracker.data.dao.CurrentTrackDao
 import com.example.mileagetracker.data.dao.SavedTrackDao
 import com.example.mileagetracker.data.dao.TrackPointDao
@@ -18,7 +17,6 @@ class LocationRepository @Inject constructor(
     private val savedTrackDao: SavedTrackDao
 ) {
 
-    // TrackPoint operations
     suspend fun insertTrackPoint(trackPoint: TrackPoint) {
         trackPointDao.insertTrackPoint(trackPoint)
     }
@@ -32,21 +30,26 @@ class LocationRepository @Inject constructor(
     }
 
     suspend fun saveTripWithName(
-        currentTrack: CurrentTrack,
+        routeId: String,
         name: String,
-
+        startLat: Double,
+        startLng: Double,
+        endLat: Double,
+        endLng: Double,
+        startTime: Long,
+        endTime: Long,
         distance: Double,
         duration: Long
     ) {
         val savedTrack = SavedTrack(
-            routeId = currentTrack.routeId,
+            routeId = routeId,
             name = name,
-            startLatitude = currentTrack.startLatitude,
-            startLongitude = currentTrack.startLongitude,
-            endLatitude = currentTrack.endLatitude!!,
-            endLongitude = currentTrack.endLongitude!!,
-            startTime = currentTrack.startTime,
-            endTime = currentTrack.endTime!!,
+            startLatitude = startLat,
+            startLongitude = startLng,
+            endLatitude = endLat,
+            endLongitude = endLng,
+            startTime = startTime,
+            endTime = endTime,
             distance = distance,
             duration = duration
         )
@@ -57,10 +60,13 @@ class LocationRepository @Inject constructor(
         return savedTrackDao.getAllSavedTracks()
     }
 
+    suspend fun getSavedTrackById(routeId: String): SavedTrack? {
+        return savedTrackDao.getSavedTrackById(routeId)
+    }
+
     suspend fun deleteSavedTrack(routeId: String) {
         savedTrackDao.deleteSavedTrack(routeId)
     }
-
 
     fun getAllTrackPoints(): Flow<List<TrackPoint>> {
         return trackPointDao.getAllTrackPoints()
@@ -76,7 +82,6 @@ class LocationRepository @Inject constructor(
     }
 
     suspend fun updateCurrentTrack(currentTrack: CurrentTrack) {
-        // Update the current track in your database
         currentTrackDao.updateCurrentTrack(currentTrack)
     }
 
@@ -91,6 +96,4 @@ class LocationRepository @Inject constructor(
     suspend fun deleteTrack(trackId: String) {
         currentTrackDao.deleteTrackByRouteId(trackId)
     }
-
 }
-

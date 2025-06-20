@@ -133,19 +133,29 @@ class LocationMapViewModel @Inject constructor(
         }
     }
 
-    suspend fun saveTrackWithName(
-        name: String, distance: Float, duration: Long,
-        currentTrack: CurrentTrack
-    ) {
+    suspend fun saveTrackWithName(name: String, duration: Long, distance: Double) {
+        val track =  _lastCompletedTrack.value
+        val points = _trackPoints.value
 
-        locationRepository.saveTripWithName(
+        if (track != null && points.isNotEmpty()) {
+            // Use track's end coordinates if available, otherwise use last track point
+            val endLat = track.endLatitude ?: points.last().latitude
+            val endLng = track.endLongitude ?: points.last().longitude
+            val endTime = track.endTime ?: points.last().timestamp
 
-            name = name,
-            currentTrack = currentTrack,
-            distance = distance.toDouble(),
-            duration = duration
-        )
-
+            locationRepository.saveTripWithName(
+                routeId = track.routeId,
+                name = name,
+                startLat = track.startLatitude,
+                startLng = track.startLongitude,
+                endLat = endLat,
+                endLng = endLng,
+                startTime = track.startTime,
+                endTime = endTime,
+                distance = distance,
+                duration = duration
+            )
+        }
     }
 
     fun updateAzimuth(azimuth: Float) {
@@ -197,18 +207,28 @@ class LocationMapViewModel @Inject constructor(
         val routeId = _currentRouteId.value ?: return
         val currentTime = System.currentTimeMillis()
 
-
         Log.d(TAG, "Stopping tracking for route: $routeId")
 
         viewModelScope.launch {
-
+            // First, stop tracking in the database
             locationRepository.stopTracking(
                 routeId = routeId,
                 endLat = location.latitude,
                 endLng = location.longitude,
                 endTime = currentTime
             )
-            _lastCompletedTrack.value = activeTrack.value
+
+            // Create the completed track with end coordinates
+            val completedTrack = _activeTrack.value?.copy(
+                endLatitude = location.latitude,
+                endLongitude = location.longitude,
+                endTime = currentTime,
+                isTracking = false
+            )
+
+            // Set the completed track with proper end coordinates
+            _lastCompletedTrack.value = completedTrack
+
             trackPointsJob?.cancel()
 
             _isTracking.value = false
@@ -342,7 +362,6 @@ class LocationMapViewModel @Inject constructor(
                     // Update UI state to reflect ongoing tracking
                     _currentRouteId.value = activeTrack.routeId
                     _isTracking.value = true
-
                     // Get track points for the active route
                     getTrackPointsForRoute(activeTrack.routeId)
 
