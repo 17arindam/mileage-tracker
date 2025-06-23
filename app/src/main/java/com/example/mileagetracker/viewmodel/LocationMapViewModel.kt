@@ -127,10 +127,10 @@ class LocationMapViewModel @Inject constructor(
         Log.d(TAG, "Location updated: ${location.latitude}, ${location.longitude}")
 
         // If tracking is active, save the location point and update distance
-        if (_isTracking.value && _currentRouteId.value != null) {
-            Log.d(TAG, "Tracking active, saving track point")
-            saveTrackPointAndUpdateDistance(location)
-        }
+//        if (_isTracking.value && _currentRouteId.value != null) {
+//            Log.d(TAG, "Tracking active, saving track point")
+//            saveTrackPointAndUpdateDistance(location)
+//        }
     }
 
     suspend fun saveTrackWithName(name: String, duration: Long, distance: Double) {
@@ -188,7 +188,16 @@ class LocationMapViewModel @Inject constructor(
 
             Log.d(TAG, "Inserting new track into database")
             locationRepository.startTracking(currentTrack)
+            val trackPoint = TrackPoint(
+                routeId = routeId,
+                latitude = location.latitude,
+                longitude = location.longitude,
+                speed = location.speed,
+                accuracy = location.accuracy,
+                timestamp = System.currentTimeMillis()
+            )
 
+            locationRepository.insertTrackPoint(trackPoint)
             _currentRouteId.value = routeId
             _isTracking.value = true
 

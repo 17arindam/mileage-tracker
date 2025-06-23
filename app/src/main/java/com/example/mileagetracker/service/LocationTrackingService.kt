@@ -124,9 +124,9 @@ class LocationTrackingService : Service() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error checking active tracking", e)
-            // Don't stop service immediately, try again later
+
             serviceScope.launch {
-                kotlinx.coroutines.delay(5000) // Wait 5 seconds
+                kotlinx.coroutines.delay(5000)
                 checkAndResumeTracking()
             }
         }
@@ -134,7 +134,7 @@ class LocationTrackingService : Service() {
 
     private fun acquireWakeLock() {
         try {
-            releaseWakeLock() // Release any existing wake lock first
+            releaseWakeLock()
 
             val powerManager = getSystemService(POWER_SERVICE) as PowerManager
             wakeLock = powerManager.newWakeLock(
@@ -168,17 +168,9 @@ class LocationTrackingService : Service() {
 
         currentRouteId = routeId
         isServiceTracking = true
-
-        // Start foreground service FIRST to avoid ANR
         startForeground(NOTIFICATION_ID, createNotification())
-
-        // Then acquire wake lock
         acquireWakeLock()
-
-        // Start location updates
         startLocationUpdates()
-
-        // Get the last known location from track points for distance calculation
 
     }
 
@@ -196,11 +188,7 @@ class LocationTrackingService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping location updates", e)
         }
-
-        // Release wake lock
         releaseWakeLock()
-
-        // Stop foreground service
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -214,12 +202,11 @@ class LocationTrackingService : Service() {
             Log.e(TAG, "Location permission not granted")
             return
         }
-
-        // More conservative location request for better battery life
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000L) // 10 seconds
-            .setMinUpdateIntervalMillis(5000L) // 5 seconds minimum
-            .setMaxUpdateDelayMillis(15000L) // 15 seconds maximum delay
-            .setWaitForAccurateLocation(false)
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L)
+            .setMinUpdateIntervalMillis(3000L)
+            .setMaxUpdateDelayMillis(8000L)
+            .setWaitForAccurateLocation(true)
+            .setMinUpdateDistanceMeters(5f)
             .build()
 
         try {
@@ -248,7 +235,6 @@ class LocationTrackingService : Service() {
 
         serviceScope.launch {
             try {
-                // Create track point
                 val trackPoint = TrackPoint(
                     routeId = routeId,
                     latitude = location.latitude,
@@ -257,18 +243,9 @@ class LocationTrackingService : Service() {
                     accuracy = location.accuracy,
                     timestamp = System.currentTimeMillis()
                 )
-
-                // Insert track point
                 locationRepository.insertTrackPoint(trackPoint)
                 Log.d(TAG, "Track point saved")
-
-                // Update notification
                 updateNotification(location)
-
-
-
-
-
             } catch (e: Exception) {
                 Log.e(TAG, "Error handling location update", e)
             }
@@ -369,9 +346,6 @@ class LocationTrackingService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         Log.d(TAG, "Task removed - service will continue running")
-
-        // Just log that task was removed, don't stop the service
-        // The service should continue running with the foreground notification
         super.onTaskRemoved(rootIntent)
     }
 }

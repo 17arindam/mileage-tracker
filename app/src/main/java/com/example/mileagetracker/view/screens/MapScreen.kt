@@ -803,13 +803,25 @@ fun MapViewContainer(
                 }
             },
             update = { view ->
-                val geoPoint = GeoPoint(location.latitude, location.longitude)
-                view.controller.animateTo(geoPoint)
+                // Use last track point location if tracking and track points exist, otherwise use current location
+                val displayLocation = if (isTracking && trackPoints.isNotEmpty()) {
+                    val lastTrackPoint = trackPoints.last()
+                    Location("").apply {
+                        latitude = lastTrackPoint.latitude
+                        longitude = lastTrackPoint.longitude
+                    }
+                } else {
+                    location
+                }
+
+                val geoPoint = GeoPoint(displayLocation.latitude, displayLocation.longitude)
+//                view.controller.animateTo(geoPoint)
                 currentMarker?.let { marker ->
                     marker.position = geoPoint
                     marker.rotation = adjustedAzimuth
                 }
 
+                // Rest of the update block remains the same...
                 // Update route polyline with track points
                 routePolyline?.let { polyline ->
                     val geoPoints = trackPoints.map { trackPoint ->
@@ -861,9 +873,9 @@ fun MapViewContainer(
                     view.overlays.removeAll { it is Marker && it.title == "stop_flag" }
                 }
 
-
                 view.invalidate()
-            },
+            }
+            ,
             modifier = Modifier.fillMaxSize()
         )
 
